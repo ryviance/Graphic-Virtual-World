@@ -211,8 +211,8 @@ document.getElementById("webgl").addEventListener("contextmenu", function(e) { e
 
 function generateForest() {
   trees = [];
-  // Generate 300 trees over area x,z ∈ [-100,100]
-  for (let i = 0; i < 300; i++) {
+  // Generate 200 trees over area x,z ∈ [-100,100]
+  for (let i = 0; i < 125; i++) {
     let x = Math.floor(Math.random() * 200 - 100);
     let z = Math.floor(Math.random() * 200 - 100);
     // Skip trees whose base is near the path (|x| < 5)
