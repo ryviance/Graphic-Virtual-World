@@ -47,7 +47,8 @@ function loadTexture(gl, url) {
   return tex;
 }
 
-// -- Draw a double-sided colored cube (used for testing if needed) --
+// -- Draw a double-sided colored cube (24-vertex version) --
+// Used for dynamic blocks if needed.
 function drawColoredCube(gl, prog, m, col) {
   gl.disable(gl.CULL_FACE);
   m = m || mat4.create();
@@ -55,29 +56,54 @@ function drawColoredCube(gl, prog, m, col) {
   gl.disableVertexAttribArray(aCol);
   gl.vertexAttrib4f(aCol, col[0], col[1], col[2], col[3]);
   const verts = new Float32Array([
-    -0.5,-0.5, 0.5,
-     0.5,-0.5, 0.5,
-     0.5, 0.5, 0.5,
-    -0.5, 0.5, 0.5,
-    -0.5,-0.5,-0.5,
-     0.5,-0.5,-0.5,
-     0.5, 0.5,-0.5,
-    -0.5, 0.5,-0.5
+    // Front face
+    -0.5,-0.5,0.5, 0,0,
+     0.5,-0.5,0.5, 1,0,
+     0.5,0.5,0.5,  1,1,
+    -0.5,0.5,0.5,  0,1,
+    // Back face
+     0.5,-0.5,-0.5, 0,0,
+    -0.5,-0.5,-0.5, 1,0,
+    -0.5,0.5,-0.5,  1,1,
+     0.5,0.5,-0.5,  0,1,
+    // Left face
+    -0.5,-0.5,-0.5, 0,0,
+    -0.5,-0.5,0.5,  1,0,
+    -0.5,0.5,0.5,   1,1,
+    -0.5,0.5,-0.5,  0,1,
+    // Right face
+     0.5,-0.5,0.5,  0,0,
+     0.5,-0.5,-0.5, 1,0,
+     0.5,0.5,-0.5,  1,1,
+     0.5,0.5,0.5,   0,1,
+    // Top face
+    -0.5,0.5,0.5,   0,0,
+     0.5,0.5,0.5,   1,0,
+     0.5,0.5,-0.5,  1,1,
+    -0.5,0.5,-0.5,  0,1,
+    // Bottom face
+    -0.5,-0.5,-0.5, 0,0,
+     0.5,-0.5,-0.5, 1,0,
+     0.5,-0.5,0.5,  1,1,
+    -0.5,-0.5,0.5,  0,1
   ]);
   const inds = new Uint16Array([
-    0,1,2, 0,2,3,
-    4,5,6, 4,6,7,
-    0,3,7, 0,7,4,
-    1,5,6, 1,6,2,
-    3,2,6, 3,6,7,
-    0,1,5, 0,5,4
+    0,1,2, 0,2,3,      // Front
+    4,5,6, 4,6,7,      // Back
+    8,9,10, 8,10,11,   // Left
+    12,13,14, 12,14,15, // Right
+    16,17,18, 16,18,19, // Top
+    20,21,22, 20,22,23  // Bottom
   ]);
   let vb = gl.createBuffer();
   gl.bindBuffer(gl.ARRAY_BUFFER, vb);
   gl.bufferData(gl.ARRAY_BUFFER, verts, gl.STATIC_DRAW);
   let aPos = gl.getAttribLocation(prog, "a_Position");
-  gl.vertexAttribPointer(aPos, 3, gl.FLOAT, false, 0, 0);
+  gl.vertexAttribPointer(aPos, 3, gl.FLOAT, false, 5 * 4, 0);
   gl.enableVertexAttribArray(aPos);
+  let aTex = gl.getAttribLocation(prog, "a_TexCoord");
+  gl.vertexAttribPointer(aTex, 2, gl.FLOAT, false, 5 * 4, 3 * 4);
+  gl.enableVertexAttribArray(aTex);
   let ib = gl.createBuffer();
   gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ib);
   gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, inds, gl.STATIC_DRAW);
@@ -86,7 +112,7 @@ function drawColoredCube(gl, prog, m, col) {
   gl.enable(gl.CULL_FACE);
 }
 
-// -- Draw a double-sided colored quad (ground) --
+// -- Draw a double-sided colored quad (for ground) --
 function drawColoredQuad(gl, prog, m, col) {
   const verts = new Float32Array([
     -100, 0, -100,
@@ -114,7 +140,7 @@ function drawColoredQuad(gl, prog, m, col) {
 }
 
 // -- Draw a double-sided textured cube (for trunk and leaves) --
-// This version uses 24 distinct vertices so that each face gets proper texture coords.
+// Uses 24 vertices so that each face maps full texture coordinates.
 function drawTexturedCube(gl, prog, m, tex) {
   gl.disable(gl.CULL_FACE);
   m = m || mat4.create();
@@ -122,49 +148,43 @@ function drawTexturedCube(gl, prog, m, tex) {
   let aPos = gl.getAttribLocation(prog, "a_Position");
   let aTex = gl.getAttribLocation(prog, "a_TexCoord");
   const verts = new Float32Array([
-    // Front face (z = 0.5)
-    -0.5, -0.5,  0.5,   0,0,
-     0.5, -0.5,  0.5,   1,0,
-     0.5,  0.5,  0.5,   1,1,
-    -0.5,  0.5,  0.5,   0,1,
-    // Back face (z = -0.5)
-     0.5, -0.5, -0.5,   0,0,
-    -0.5, -0.5, -0.5,   1,0,
-    -0.5,  0.5, -0.5,   1,1,
-     0.5,  0.5, -0.5,   0,1,
-    // Left face (x = -0.5)
-    -0.5, -0.5, -0.5,   0,0,
-    -0.5, -0.5,  0.5,   1,0,
-    -0.5,  0.5,  0.5,   1,1,
-    -0.5,  0.5, -0.5,   0,1,
-    // Right face (x = 0.5)
-     0.5, -0.5,  0.5,   0,0,
-     0.5, -0.5, -0.5,   1,0,
-     0.5,  0.5, -0.5,   1,1,
-     0.5,  0.5,  0.5,   0,1,
-    // Top face (y = 0.5)
-    -0.5,  0.5,  0.5,   0,0,
-     0.5,  0.5,  0.5,   1,0,
-     0.5,  0.5, -0.5,   1,1,
-    -0.5,  0.5, -0.5,   0,1,
-    // Bottom face (y = -0.5)
-    -0.5, -0.5, -0.5,   0,0,
-     0.5, -0.5, -0.5,   1,0,
-     0.5, -0.5,  0.5,   1,1,
-    -0.5, -0.5,  0.5,   0,1
+    // Front face
+    -0.5, -0.5,  0.5, 0,0,
+     0.5, -0.5,  0.5, 1,0,
+     0.5,  0.5,  0.5, 1,1,
+    -0.5,  0.5,  0.5, 0,1,
+    // Back face
+     0.5, -0.5, -0.5, 0,0,
+    -0.5, -0.5, -0.5, 1,0,
+    -0.5,  0.5, -0.5, 1,1,
+     0.5,  0.5, -0.5, 0,1,
+    // Left face
+    -0.5, -0.5, -0.5, 0,0,
+    -0.5, -0.5,  0.5, 1,0,
+    -0.5,  0.5,  0.5, 1,1,
+    -0.5,  0.5, -0.5, 0,1,
+    // Right face
+     0.5, -0.5,  0.5, 0,0,
+     0.5, -0.5, -0.5, 1,0,
+     0.5,  0.5, -0.5, 1,1,
+     0.5,  0.5,  0.5, 0,1,
+    // Top face
+    -0.5,  0.5,  0.5, 0,0,
+     0.5,  0.5,  0.5, 1,0,
+     0.5,  0.5, -0.5, 1,1,
+    -0.5,  0.5, -0.5, 0,1,
+    // Bottom face
+    -0.5, -0.5, -0.5, 0,0,
+     0.5, -0.5, -0.5, 1,0,
+     0.5, -0.5,  0.5, 1,1,
+    -0.5, -0.5,  0.5, 0,1
   ]);
   const inds = new Uint16Array([
-    // Front
     0,1,2, 0,2,3,
-    // Back
     4,5,6, 4,6,7,
-    // Left
     8,9,10, 8,10,11,
-    // Right
     12,13,14, 12,14,15,
-    // Top
     16,17,18, 16,18,19,
-    // Bottom
     20,21,22, 20,22,23
   ]);
   let vb = gl.createBuffer();
@@ -206,7 +226,7 @@ function initSkyboxBuffers(gl) {
   skyIndCount = inds.length;
 }
 function drawTexturedSkybox(gl, prog, scale, tex) {
-  if(!skyVBuf || !skyIBuf) initSkyboxBuffers(gl);
+  if (!skyVBuf || !skyIBuf) initSkyboxBuffers(gl);
   let aPos = gl.getAttribLocation(prog, "a_Position");
   gl.bindBuffer(gl.ARRAY_BUFFER, skyVBuf);
   gl.vertexAttribPointer(aPos, 3, gl.FLOAT, false, 0, 0);
