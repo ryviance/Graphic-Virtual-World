@@ -1,6 +1,6 @@
 // Cube.js
 
-// -- Load a cube map from a single PNG (for skybox) --
+// -- Load a single PNG into a cube map (skybox) --
 function loadCubeMapTexture(gl, url) {
   const tex = gl.createTexture();
   gl.bindTexture(gl.TEXTURE_CUBE_MAP, tex);
@@ -9,16 +9,17 @@ function loadCubeMapTexture(gl, url) {
     gl.TEXTURE_CUBE_MAP_POSITIVE_Y, gl.TEXTURE_CUBE_MAP_NEGATIVE_Y,
     gl.TEXTURE_CUBE_MAP_POSITIVE_Z, gl.TEXTURE_CUBE_MAP_NEGATIVE_Z
   ];
-  faces.forEach(f => {
-    gl.texImage2D(f, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE,
-                  new Uint8Array([0, 0, 255, 255]));
+  // Temporary 1×1 pixel for each face.
+  faces.forEach(face => {
+    gl.texImage2D(face, 0, gl.RGBA, 1, 1, 0,
+                  gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0,0,255,255]));
   });
-  let img = new Image();
+  const img = new Image();
   img.src = url;
   img.onload = function() {
-    faces.forEach(f => {
+    faces.forEach(face => {
       gl.bindTexture(gl.TEXTURE_CUBE_MAP, tex);
-      gl.texImage2D(f, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
+      gl.texImage2D(face, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
     });
     gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
@@ -28,13 +29,14 @@ function loadCubeMapTexture(gl, url) {
   return tex;
 }
 
-// -- Load a 2D texture (for trunk and leaves) --
+// -- Load a 2D texture from a PNG --
 function loadTexture(gl, url) {
   const tex = gl.createTexture();
   gl.bindTexture(gl.TEXTURE_2D, tex);
+  // 1×1 blue pixel placeholder
   gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0,
-                gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 255, 255]));
-  let img = new Image();
+                gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0,0,255,255]));
+  const img = new Image();
   img.src = url;
   img.onload = function() {
     gl.bindTexture(gl.TEXTURE_2D, tex);
@@ -47,45 +49,76 @@ function loadTexture(gl, url) {
   return tex;
 }
 
-// -- Draw a double-sided colored cube (24-vertex version) --
-// Used for dynamic blocks if needed.
-function drawColoredCube(gl, prog, m, col) {
-  gl.disable(gl.CULL_FACE);
-  m = m || mat4.create();
-  let aCol = gl.getAttribLocation(prog, "a_Color");
-  gl.disableVertexAttribArray(aCol);
-  gl.vertexAttrib4f(aCol, col[0], col[1], col[2], col[3]);
+/* ---------------------------
+   Preallocated Buffers
+   --------------------------- */
+
+// 1) Colored Cube Buffers (3 floats per vertex, 8 vertices, 12 triangles)
+var cubeColoredVB = null, cubeColoredIB = null, cubeColoredIndexCount = 0;
+function initCubeColoredBuffers(gl) {
   const verts = new Float32Array([
-    // Front face
-    -0.5,-0.5,0.5,  0,0,
-     0.5,-0.5,0.5,  1,0,
-     0.5,0.5,0.5,   1,1,
-    -0.5,0.5,0.5,   0,1,
-    // Back face
-     0.5,-0.5,-0.5,  0,0,
-    -0.5,-0.5,-0.5,  1,0,
-    -0.5,0.5,-0.5,   1,1,
-     0.5,0.5,-0.5,   0,1,
-    // Left face
-    -0.5,-0.5,-0.5,  0,0,
-    -0.5,-0.5,0.5,   1,0,
-    -0.5,0.5,0.5,    1,1,
-    -0.5,0.5,-0.5,   0,1,
-    // Right face
-     0.5,-0.5,0.5,   0,0,
-     0.5,-0.5,-0.5,  1,0,
-     0.5,0.5,-0.5,   1,1,
-     0.5,0.5,0.5,   0,1,
-    // Top face
-    -0.5,0.5,0.5,    0,0,
-     0.5,0.5,0.5,    1,0,
-     0.5,0.5,-0.5,   1,1,
-    -0.5,0.5,-0.5,   0,1,
-    // Bottom face
-    -0.5,-0.5,-0.5,  0,0,
-     0.5,-0.5,-0.5,  1,0,
-     0.5,-0.5,0.5,   1,1,
-    -0.5,-0.5,0.5,   0,1
+    // front face
+    -0.5, -0.5,  0.5,
+     0.5, -0.5,  0.5,
+     0.5,  0.5,  0.5,
+    -0.5,  0.5,  0.5,
+    // back face
+     0.5, -0.5, -0.5,
+    -0.5, -0.5, -0.5,
+    -0.5,  0.5, -0.5,
+     0.5,  0.5, -0.5
+  ]);
+  const inds = new Uint16Array([
+    0,1,2, 0,2,3,
+    4,5,6, 4,6,7,
+    0,3,5, 3,6,5,
+    1,4,7, 1,7,2,
+    3,2,7, 3,7,6,
+    0,5,1, 5,4,1
+  ]);
+  cubeColoredVB = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, cubeColoredVB);
+  gl.bufferData(gl.ARRAY_BUFFER, verts, gl.STATIC_DRAW);
+  cubeColoredIB = gl.createBuffer();
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, cubeColoredIB);
+  gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, inds, gl.STATIC_DRAW);
+  cubeColoredIndexCount = inds.length;
+}
+
+// 2) Textured Cube Buffers (5 floats per vertex, 24 vertices)
+var cubeTexturedVB = null, cubeTexturedIB = null, cubeTexturedIndexCount = 0;
+function initCubeTexturedBuffers(gl) {
+  const verts = new Float32Array([
+    // front face
+    -0.5,-0.5, 0.5, 0,0,
+     0.5,-0.5, 0.5, 1,0,
+     0.5, 0.5, 0.5, 1,1,
+    -0.5, 0.5, 0.5, 0,1,
+    // back face
+     0.5,-0.5,-0.5, 0,0,
+    -0.5,-0.5,-0.5, 1,0,
+    -0.5, 0.5,-0.5, 1,1,
+     0.5, 0.5,-0.5, 0,1,
+    // left face
+    -0.5,-0.5,-0.5, 0,0,
+    -0.5,-0.5, 0.5, 1,0,
+    -0.5, 0.5, 0.5, 1,1,
+    -0.5, 0.5,-0.5, 0,1,
+    // right face
+     0.5,-0.5, 0.5, 0,0,
+     0.5,-0.5,-0.5, 1,0,
+     0.5, 0.5,-0.5, 1,1,
+     0.5, 0.5, 0.5, 0,1,
+    // top face
+    -0.5, 0.5, 0.5, 0,0,
+     0.5, 0.5, 0.5, 1,0,
+     0.5, 0.5,-0.5, 1,1,
+    -0.5, 0.5,-0.5, 0,1,
+    // bottom face
+    -0.5,-0.5,-0.5, 0,0,
+     0.5,-0.5,-0.5, 1,0,
+     0.5,-0.5, 0.5, 1,1,
+    -0.5,-0.5, 0.5, 0,1
   ]);
   const inds = new Uint16Array([
     0,1,2, 0,2,3,
@@ -95,119 +128,40 @@ function drawColoredCube(gl, prog, m, col) {
     16,17,18, 16,18,19,
     20,21,22, 20,22,23
   ]);
-  let vb = gl.createBuffer();
-  gl.bindBuffer(gl.ARRAY_BUFFER, vb);
+  cubeTexturedVB = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, cubeTexturedVB);
   gl.bufferData(gl.ARRAY_BUFFER, verts, gl.STATIC_DRAW);
-  let aPos = gl.getAttribLocation(prog, "a_Position");
-  gl.vertexAttribPointer(aPos, 3, gl.FLOAT, false, 5 * 4, 0);
-  gl.enableVertexAttribArray(aPos);
-  let aTex = gl.getAttribLocation(prog, "a_TexCoord");
-  gl.vertexAttribPointer(aTex, 2, gl.FLOAT, false, 5 * 4, 3 * 4);
-  gl.enableVertexAttribArray(aTex);
-  let ib = gl.createBuffer();
-  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ib);
+  cubeTexturedIB = gl.createBuffer();
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, cubeTexturedIB);
   gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, inds, gl.STATIC_DRAW);
-  gl.uniformMatrix4fv(gl.getUniformLocation(prog, "u_Model"), false, m);
-  gl.drawElements(gl.TRIANGLES, inds.length, gl.UNSIGNED_SHORT, 0);
-  gl.enable(gl.CULL_FACE);
+  cubeTexturedIndexCount = inds.length;
 }
 
-// -- Draw a double-sided colored quad (for ground) --
-function drawColoredQuad(gl, prog, m, col) {
+// 3) Quad Buffers (for ground)
+var quadVB = null, quadIB = null, quadIndexCount = 0;
+function initQuadBuffers(gl) {
   const verts = new Float32Array([
-    -100, 0, -100,
-     100, 0, -100,
-     100, 0,  100,
-    -100, 0,  100
+    -100,0,-100,
+     100,0,-100,
+     100,0, 100,
+    -100,0, 100
   ]);
   const inds = new Uint16Array([0,1,2, 0,2,3]);
-  let vb = gl.createBuffer();
-  gl.bindBuffer(gl.ARRAY_BUFFER, vb);
+  quadVB = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, quadVB);
   gl.bufferData(gl.ARRAY_BUFFER, verts, gl.STATIC_DRAW);
-  let aPos = gl.getAttribLocation(prog, "a_Position");
-  gl.vertexAttribPointer(aPos, 3, gl.FLOAT, false, 0, 0);
-  gl.enableVertexAttribArray(aPos);
-  let aCol = gl.getAttribLocation(prog, "a_Color");
-  gl.disableVertexAttribArray(aCol);
-  gl.vertexAttrib4f(aCol, col[0], col[1], col[2], col[3]);
-  let ib = gl.createBuffer();
-  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ib);
+  quadIB = gl.createBuffer();
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, quadIB);
   gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, inds, gl.STATIC_DRAW);
-  gl.uniformMatrix4fv(gl.getUniformLocation(prog, "u_Model"), false, m || mat4.create());
-  gl.disable(gl.CULL_FACE);
-  gl.drawElements(gl.TRIANGLES, inds.length, gl.UNSIGNED_SHORT, 0);
-  gl.enable(gl.CULL_FACE);
+  quadIndexCount = inds.length;
 }
 
-// -- Draw a double-sided textured cube (for trunk and leaves) --
-// Uses 24 vertices so that each face maps the full texture.
-function drawTexturedCube(gl, prog, m, tex) {
-  gl.disable(gl.CULL_FACE);
-  m = m || mat4.create();
-  gl.bindTexture(gl.TEXTURE_2D, tex);
-  let aPos = gl.getAttribLocation(prog, "a_Position");
-  let aTex = gl.getAttribLocation(prog, "a_TexCoord");
-  const verts = new Float32Array([
-    // Front face
-    -0.5, -0.5,  0.5,  0,0,
-     0.5, -0.5,  0.5,  1,0,
-     0.5,  0.5,  0.5,  1,1,
-    -0.5,  0.5,  0.5,  0,1,
-    // Back face
-     0.5, -0.5, -0.5,  0,0,
-    -0.5, -0.5, -0.5,  1,0,
-    -0.5,  0.5, -0.5,  1,1,
-     0.5,  0.5, -0.5,  0,1,
-    // Left face
-    -0.5, -0.5, -0.5,  0,0,
-    -0.5, -0.5,  0.5,  1,0,
-    -0.5,  0.5,  0.5,  1,1,
-    -0.5,  0.5, -0.5,  0,1,
-    // Right face
-     0.5, -0.5,  0.5,  0,0,
-     0.5, -0.5, -0.5,  1,0,
-     0.5,  0.5, -0.5,  1,1,
-     0.5,  0.5,  0.5,  0,1,
-    // Top face
-    -0.5,  0.5,  0.5,  0,0,
-     0.5,  0.5,  0.5,  1,0,
-     0.5,  0.5, -0.5,  1,1,
-    -0.5,  0.5, -0.5,  0,1,
-    // Bottom face
-    -0.5, -0.5, -0.5,  0,0,
-     0.5, -0.5, -0.5,  1,0,
-     0.5, -0.5,  0.5,  1,1,
-    -0.5, -0.5,  0.5,  0,1
-  ]);
-  const inds = new Uint16Array([
-    0,1,2, 0,2,3,
-    4,5,6, 4,6,7,
-    8,9,10, 8,10,11,
-    12,13,14, 12,14,15,
-    16,17,18, 16,18,19,
-    20,21,22, 20,22,23
-  ]);
-  let vb = gl.createBuffer();
-  gl.bindBuffer(gl.ARRAY_BUFFER, vb);
-  gl.bufferData(gl.ARRAY_BUFFER, verts, gl.STATIC_DRAW);
-  gl.vertexAttribPointer(aPos, 3, gl.FLOAT, false, 5*4, 0);
-  gl.enableVertexAttribArray(aPos);
-  gl.vertexAttribPointer(aTex, 2, gl.FLOAT, false, 5*4, 3*4);
-  gl.enableVertexAttribArray(aTex);
-  let ib = gl.createBuffer();
-  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ib);
-  gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, inds, gl.STATIC_DRAW);
-  gl.uniformMatrix4fv(gl.getUniformLocation(prog, "u_Model"), false, m);
-  gl.drawElements(gl.TRIANGLES, inds.length, gl.UNSIGNED_SHORT, 0);
-  gl.enable(gl.CULL_FACE);
-}
-
-// -- Skybox Drawing --
-var skyVBuf = null, skyIBuf = null, skyIndCount = 0;
+// 4) Skybox Buffers
+var skyVBuf=null, skyIBuf=null, skyIndexCount=0;
 function initSkyboxBuffers(gl) {
   const verts = new Float32Array([
-    -1,-1,1,  1,-1,1,  1,1,1, -1,1,1,
-    -1,-1,-1, 1,-1,-1,  1,1,-1, -1,1,-1
+    -1,-1,1,  1,-1,1,  1,1,1,  -1,1,1,
+    -1,-1,-1, 1,-1,-1, 1,1,-1, -1,1,-1
   ]);
   const inds = new Uint16Array([
     0,1,2, 0,2,3,
@@ -223,24 +177,131 @@ function initSkyboxBuffers(gl) {
   skyIBuf = gl.createBuffer();
   gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, skyIBuf);
   gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, inds, gl.STATIC_DRAW);
-  skyIndCount = inds.length;
+  skyIndexCount = inds.length;
 }
-function drawTexturedSkybox(gl, prog, scale, tex) {
-  if (!skyVBuf || !skyIBuf) initSkyboxBuffers(gl);
-  let aPos = gl.getAttribLocation(prog, "a_Position");
-  gl.bindBuffer(gl.ARRAY_BUFFER, skyVBuf);
+
+/* ---------------------------
+   Drawing Functions
+   --------------------------- */
+
+function drawColoredCube(gl, program, modelMatrix, color) {
+  gl.useProgram(program);
+
+  // Initialize colored cube buffers if not done yet
+  if(!cubeColoredVB || !cubeColoredIB) {
+    initCubeColoredBuffers(gl);
+  }
+
+  // Bind and set up the vertex attribute
+  gl.bindBuffer(gl.ARRAY_BUFFER, cubeColoredVB);
+  const aPos = gl.getAttribLocation(program, "a_Position");
+  // We only stored x,y,z => 3 floats => stride = 3*4
+  gl.vertexAttribPointer(aPos, 3, gl.FLOAT, false, 3*4, 0);
+  gl.enableVertexAttribArray(aPos);
+
+  // Set a constant color
+  const aCol = gl.getAttribLocation(program, "a_Color");
+  gl.disableVertexAttribArray(aCol);
+  gl.vertexAttrib4f(aCol, color[0], color[1], color[2], color[3]);
+
+  // Bind the index buffer
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, cubeColoredIB);
+
+  // Set the model matrix
+  const u_Model = gl.getUniformLocation(program, "u_Model");
+  gl.uniformMatrix4fv(u_Model, false, modelMatrix);
+
+  // Draw
+  gl.disable(gl.CULL_FACE);
+  gl.drawElements(gl.TRIANGLES, cubeColoredIndexCount, gl.UNSIGNED_SHORT, 0);
+  gl.enable(gl.CULL_FACE);
+}
+
+function drawTexturedCube(gl, program, modelMatrix, texture) {
+  gl.useProgram(program);
+
+  // Initialize textured cube buffers if not done yet
+  if(!cubeTexturedVB || !cubeTexturedIB) {
+    initCubeTexturedBuffers(gl);
+  }
+
+  gl.bindBuffer(gl.ARRAY_BUFFER, cubeTexturedVB);
+
+  const aPos = gl.getAttribLocation(program, "a_Position");
+  gl.vertexAttribPointer(aPos, 3, gl.FLOAT, false, 5*4, 0);
+  gl.enableVertexAttribArray(aPos);
+
+  const aTex = gl.getAttribLocation(program, "a_TexCoord");
+  gl.vertexAttribPointer(aTex, 2, gl.FLOAT, false, 5*4, 3*4);
+  gl.enableVertexAttribArray(aTex);
+
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, cubeTexturedIB);
+
+  const u_Model = gl.getUniformLocation(program, "u_Model");
+  gl.uniformMatrix4fv(u_Model, false, modelMatrix);
+
+  gl.bindTexture(gl.TEXTURE_2D, texture);
+
+  gl.disable(gl.CULL_FACE);
+  gl.drawElements(gl.TRIANGLES, cubeTexturedIndexCount, gl.UNSIGNED_SHORT, 0);
+  gl.enable(gl.CULL_FACE);
+}
+
+function drawColoredQuad(gl, program, modelMatrix, color) {
+  gl.useProgram(program);
+
+  // Initialize quad buffers if not done
+  if(!quadVB || !quadIB) {
+    initQuadBuffers(gl);
+  }
+
+  gl.bindBuffer(gl.ARRAY_BUFFER, quadVB);
+  const aPos = gl.getAttribLocation(program, "a_Position");
   gl.vertexAttribPointer(aPos, 3, gl.FLOAT, false, 0, 0);
   gl.enableVertexAttribArray(aPos);
+
+  const aCol = gl.getAttribLocation(program, "a_Color");
+  gl.disableVertexAttribArray(aCol);
+  gl.vertexAttrib4f(aCol, color[0], color[1], color[2], color[3]);
+
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, quadIB);
+
+  const u_Model = gl.getUniformLocation(program, "u_Model");
+  gl.uniformMatrix4fv(u_Model, false, modelMatrix);
+
+  gl.disable(gl.CULL_FACE);
+  gl.drawElements(gl.TRIANGLES, quadIndexCount, gl.UNSIGNED_SHORT, 0);
+  gl.enable(gl.CULL_FACE);
+}
+
+function drawTexturedSkybox(gl, program, scale, texture) {
+  gl.useProgram(program);
+
+  // Initialize skybox buffers if not done
+  if(!skyVBuf || !skyIBuf) {
+    initSkyboxBuffers(gl);
+  }
+
+  gl.bindBuffer(gl.ARRAY_BUFFER, skyVBuf);
+  const aPos = gl.getAttribLocation(program, "a_Position");
+  gl.vertexAttribPointer(aPos, 3, gl.FLOAT, false, 0, 0);
+  gl.enableVertexAttribArray(aPos);
+
   gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, skyIBuf);
+
+  const u_Model = gl.getUniformLocation(program, "u_Model");
   let m = mat4.create();
   mat4.scale(m, m, [scale, scale, scale]);
-  gl.uniformMatrix4fv(gl.getUniformLocation(prog, "u_Model"), false, m);
+  gl.uniformMatrix4fv(u_Model, false, m);
+
   gl.activeTexture(gl.TEXTURE0);
-  gl.bindTexture(gl.TEXTURE_CUBE_MAP, tex);
-  gl.uniform1i(gl.getUniformLocation(prog, "u_Skybox"), 0);
+  gl.bindTexture(gl.TEXTURE_CUBE_MAP, texture);
+  const u_Skybox = gl.getUniformLocation(program, "u_Skybox");
+  gl.uniform1i(u_Skybox, 0);
+
   gl.disable(gl.DEPTH_TEST);
   gl.disable(gl.CULL_FACE);
-  gl.drawElements(gl.TRIANGLES, skyIndCount, gl.UNSIGNED_SHORT, 0);
+  gl.drawElements(gl.TRIANGLES, skyIndexCount, gl.UNSIGNED_SHORT, 0);
   gl.enable(gl.DEPTH_TEST);
   gl.enable(gl.CULL_FACE);
 }
