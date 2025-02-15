@@ -4,25 +4,25 @@ function createShader(gl, t, s) {
   let sh = gl.createShader(t);
   gl.shaderSource(sh, s);
   gl.compileShader(sh);
-  return gl.getShaderParameter(sh, gl.COMPILE_STATUS) ? sh : (console.error(gl.getShaderInfoLog(sh)), null);
+  return gl.getShaderParameter(sh, gl.COMPILE_STATUS)
+    ? sh
+    : (console.error(gl.getShaderInfoLog(sh)), null);
 }
 function createProgram(gl, vs, fs) {
   let p = gl.createProgram();
   gl.attachShader(p, createShader(gl, gl.VERTEX_SHADER, vs));
   gl.attachShader(p, createShader(gl, gl.FRAGMENT_SHADER, fs));
   gl.linkProgram(p);
-  return gl.getProgramParameter(p, gl.LINK_STATUS) ? p : (console.error(gl.getProgramInfoLog(p)), null);
+  return gl.getProgramParameter(p, gl.LINK_STATUS)
+    ? p
+    : (console.error(gl.getProgramInfoLog(p)), null);
 }
 
-// We'll use three programs:
-// colorProgram for colored geometry (ground)
-// trunkProgram for textured cubes (for trunk and leaves)
-// skyboxProgram for the skybox.
+// We'll have three programs: colorProgram (for ground), trunkProgram (for tree blocks), skyboxProgram.
 var colorProgram, trunkProgram, skyboxProgram;
 var logTexture, leafTexture, skyTexture;
 var trees = [];
-// We'll use dynamicBlocks to store blocks placed by the user.
-var dynamicBlocks = {};
+var dynamicBlocks = {}; // user-placed blocks
 
 // Shader sources
 const colorVS = `
@@ -81,97 +81,181 @@ const skyFS = `
   }
 `;
 
-// Create a Minecraft-style cherry tree: 4 trunk blocks and 3x3x2 leaves.
-function createCherryTree(b) {
+// Create a Minecraft-style cherry tree. We add +0.5 in y so the block bottom aligns with y=0.
+function createCherryTree(base) {
   let t = { trunk: [], leaves: [] };
+  // trunk: 4 blocks high
   for (let i = 0; i < 4; i++) {
-    t.trunk.push([b[0], i, b[1]]);
+    t.trunk.push([base[0], i + 0.5, base[1]]);
   }
+  // leaves: 3×3×2 at top
   for (let y = 0; y < 2; y++) {
     for (let x = -1; x <= 1; x++) {
       for (let z = -1; z <= 1; z++) {
-        t.leaves.push([b[0] + x, 4 + y, b[1] + z]);
+        t.leaves.push([base[0] + x, 4 + y + 0.5, base[1] + z]);
       }
     }
   }
   return t;
 }
-// Draw a cherry tree: trunk with logTexture; leaves with leafTexture.
-function drawCherryTree(gl, t) {
-  // Draw trunk cubes.
+// Draw a cherry tree: trunk with logTexture, leaves with leafTexture.
+function drawCherryTree(gl, tree) {
   gl.useProgram(trunkProgram);
-  for (let i = 0; i < t.trunk.length; i++) {
+  // trunk
+  for (let i = 0; i < tree.trunk.length; i++) {
     let m = mat4.create();
-    mat4.translate(m, m, t.trunk[i]);
+    mat4.translate(m, m, tree.trunk[i]);
     drawTexturedCube(gl, trunkProgram, m, logTexture);
   }
-  // Draw leaf cubes.
-  gl.useProgram(trunkProgram);
-  for (let i = 0; i < t.leaves.length; i++) {
+  // leaves
+  for (let i = 0; i < tree.leaves.length; i++) {
     let m = mat4.create();
-    mat4.translate(m, m, t.leaves[i]);
+    mat4.translate(m, m, tree.leaves[i]);
     drawTexturedCube(gl, trunkProgram, m, leafTexture);
   }
 }
 
-// Draw ground as one large quad covering 50x50 blocks.
+// Draw the ground as one large quad covering 50×50 blocks.
 function drawGround(gl, prog) {
   let m = mat4.create();
-  // Our drawColoredQuad spans 200 units, so scale down to 50.
-  let scale = 0.25;
-  mat4.scale(m, m, [scale, 1, scale]);
+  // drawColoredQuad spans -100..+100 => 200 units
+  // scale by 0.25 => 50 units
+  mat4.scale(m, m, [0.25, 1, 0.25]);
   drawColoredQuad(gl, prog, m, [0, 0.8, 0, 1]);
 }
 
-// Simple raycast: steps along a ray from camPos in the direction defined by camRot and camPitch (from Camera.js)
-// Returns the cell (as an array of integers) and its key if a dynamic block is hit.
+// DDA-based voxel traversal to find dynamic or tree blocks.
 function raycastBlock() {
   let yaw = camRot * Math.PI / 180;
   let pitch = camPitch * Math.PI / 180;
-  let dir = [Math.sin(yaw)*Math.cos(pitch), Math.sin(pitch), -Math.cos(yaw)*Math.cos(pitch)];
-  let maxT = 10, step = 0.2;
-  for (let t = 0; t < maxT; t += step) {
-    let pos = [ camPos[0] + dir[0]*t, camPos[1] + dir[1]*t, camPos[2] + dir[2]*t ];
-    let cell = pos.map(Math.floor);
+  let rayDir = [
+    Math.sin(yaw) * Math.cos(pitch),
+    Math.sin(pitch),
+    -Math.cos(yaw) * Math.cos(pitch)
+  ];
+  let pos = camPos.slice();
+  let cell = pos.map(Math.floor);
+  let step = [0, 0, 0];
+  let tMax = [0, 0, 0];
+  let tDelta = [0, 0, 0];
+  for (let i = 0; i < 3; i++) {
+    if (rayDir[i] > 0) {
+      step[i] = 1;
+      tMax[i] = ((cell[i] + 1) - pos[i]) / rayDir[i];
+    } else if (rayDir[i] < 0) {
+      step[i] = -1;
+      tMax[i] = (pos[i] - cell[i]) / -rayDir[i];
+    } else {
+      step[i] = 0;
+      tMax[i] = Infinity;
+    }
+    tDelta[i] = (rayDir[i] !== 0) ? Math.abs(1 / rayDir[i]) : Infinity;
+  }
+  
+  let maxDist = 10;
+  let faceNormal = [0, 0, 0];
+  
+  while (true) {
     let key = cell.join(",");
+    // Check dynamic blocks
     if (dynamicBlocks[key]) {
-      return { cell: cell, key: key };
+      if (tMax[0] < tMax[1] && tMax[0] < tMax[2]) { faceNormal = [-step[0], 0, 0]; }
+      else if (tMax[1] < tMax[2]) { faceNormal = [0, -step[1], 0]; }
+      else { faceNormal = [0, 0, -step[2]]; }
+      return { cell: cell.slice(), face: faceNormal, type: "dynamic" };
+    }
+    // Check tree blocks
+    for (let ti = 0; ti < trees.length; ti++) {
+      let tree = trees[ti];
+      for (let j = 0; j < tree.trunk.length; j++) {
+        if (tree.trunk[j].map(Math.floor).join(",") === key) {
+          if (tMax[0] < tMax[1] && tMax[0] < tMax[2]) { faceNormal = [-step[0], 0, 0]; }
+          else if (tMax[1] < tMax[2]) { faceNormal = [0, -step[1], 0]; }
+          else { faceNormal = [0, 0, -step[2]]; }
+          return { cell: cell.slice(), face: faceNormal, tree, blockType: "trunk", index: j };
+        }
+      }
+      for (let j = 0; j < tree.leaves.length; j++) {
+        if (tree.leaves[j].map(Math.floor).join(",") === key) {
+          if (tMax[0] < tMax[1] && tMax[0] < tMax[2]) { faceNormal = [-step[0], 0, 0]; }
+          else if (tMax[1] < tMax[2]) { faceNormal = [0, -step[1], 0]; }
+          else { faceNormal = [0, 0, -step[2]]; }
+          return { cell: cell.slice(), face: faceNormal, tree, blockType: "leaves", index: j };
+        }
+      }
+    }
+    // Step to next cell
+    if (tMax[0] < tMax[1] && tMax[0] < tMax[2]) {
+      if (tMax[0] > maxDist) break;
+      cell[0] += step[0];
+      tMax[0] += tDelta[0];
+    } else if (tMax[1] < tMax[2]) {
+      if (tMax[1] > maxDist) break;
+      cell[1] += step[1];
+      tMax[1] += tDelta[1];
+    } else {
+      if (tMax[2] > maxDist) break;
+      cell[2] += step[2];
+      tMax[2] += tDelta[2];
     }
   }
   return null;
 }
 
-// Add event listeners for block placement and destruction.
-document.getElementById("webgl").addEventListener("mousedown", function(e) {
+// Check if a cell is already occupied by dynamic or tree blocks
+function isCellOccupied(cell) {
+  let key = cell.join(",");
+  // We no longer block y=0. So you can place at ground level.
+  if (dynamicBlocks[key]) return true;
+  // check trees
+  for (let i = 0; i < trees.length; i++) {
+    let tree = trees[i];
+    for (let j = 0; j < tree.trunk.length; j++) {
+      if (tree.trunk[j].map(Math.floor).join(",") === key) return true;
+    }
+    for (let j = 0; j < tree.leaves.length; j++) {
+      if (tree.leaves[j].map(Math.floor).join(",") === key) return true;
+    }
+  }
+  return false;
+}
+
+// Place/destroy blocks
+document.getElementById("webgl").addEventListener("mousedown", e => {
   e.preventDefault();
   let hit = raycastBlock();
-  if (e.button === 0 && hit) { // Left-click: destroy block if present.
-    delete dynamicBlocks[hit.key];
-  } else if (e.button === 2) { // Right-click: place block adjacent.
+  if (e.button === 0 && hit) {
+    // Left-click: remove block
+    if (hit.tree) {
+      // remove from tree
+      if (hit.blockType === "trunk") {
+        hit.tree.trunk.splice(hit.index, 1);
+      } else {
+        hit.tree.leaves.splice(hit.index, 1);
+      }
+    } else {
+      // remove from dynamic blocks
+      delete dynamicBlocks[hit.cell.join(",")];
+    }
+  } else if (e.button === 2) {
+    // Right-click: place block
     let cell;
     if (hit) {
-      // Place block adjacent to the hit cell in the opposite direction of the ray.
-      let yaw = camRot * Math.PI / 180, pitch = camPitch * Math.PI / 180;
-      let dir = [Math.sin(yaw)*Math.cos(pitch), Math.sin(pitch), -Math.cos(yaw)*Math.cos(pitch)];
-      let offset = [
-        (dir[0] > 0 ? -1 : (dir[0] < 0 ? 1 : 0)),
-        (dir[1] > 0 ? -1 : (dir[1] < 0 ? 1 : 0)),
-        (dir[2] > 0 ? -1 : (dir[2] < 0 ? 1 : 0))
-      ];
-      cell = [ hit.cell[0] + offset[0], hit.cell[1] + offset[1], hit.cell[2] + offset[2] ];
+      // place adjacent
+      let n = hit.face;
+      cell = [ hit.cell[0] - n[0], hit.cell[1] - n[1], hit.cell[2] - n[2] ];
     } else {
-      // If no dynamic block is hit, place block 5 units in front of the camera.
-      let yaw = camRot * Math.PI / 180, pitch = camPitch * Math.PI / 180;
+      // no block hit, place 5 units in front
+      let yaw = camRot * Math.PI/180, pitch = camPitch * Math.PI/180;
       cell = [
         Math.floor(camPos[0] + Math.sin(yaw)*Math.cos(pitch)*5),
         Math.floor(camPos[1] + Math.sin(pitch)*5),
         Math.floor(camPos[2] - Math.cos(yaw)*Math.cos(pitch)*5)
       ];
     }
-    // Do not allow placing a block at ground level (y == 0).
-    if (cell[1] > 0) {
-      let key = cell.join(",");
-      dynamicBlocks[key] = true;
+    // If not occupied, place it
+    if (!isCellOccupied(cell)) {
+      dynamicBlocks[cell.join(",")] = true;
     }
   }
 });
@@ -184,36 +268,37 @@ function renderScene() {
   let vpMatrix = mat4.create();
   mat4.multiply(vpMatrix, vp.proj, vp.view);
   
-  // For skybox: remove translation.
+  // For skybox, remove translation from view
   let skyView = mat4.clone(vp.view);
   skyView[12] = skyView[13] = skyView[14] = 0;
   let skyVP = mat4.create();
   mat4.multiply(skyVP, vp.proj, skyView);
   
-  // Set VP for trunkProgram and colorProgram.
+  // set VP for trunkProgram and colorProgram
   gl.useProgram(trunkProgram);
-  gl.uniformMatrix4fv(gl.getUniformLocation(trunkProgram, "u_ViewProjection"), false, vpMatrix);
+  gl.uniformMatrix4fv(gl.getUniformLocation(trunkProgram,"u_ViewProjection"),false,vpMatrix);
   gl.useProgram(colorProgram);
-  gl.uniformMatrix4fv(gl.getUniformLocation(colorProgram, "u_ViewProjection"), false, vpMatrix);
+  gl.uniformMatrix4fv(gl.getUniformLocation(colorProgram,"u_ViewProjection"),false,vpMatrix);
   
-  // Draw skybox.
+  // draw skybox
   gl.useProgram(skyboxProgram);
-  gl.uniformMatrix4fv(gl.getUniformLocation(skyboxProgram, "u_ViewProjection"), false, skyVP);
+  gl.uniformMatrix4fv(gl.getUniformLocation(skyboxProgram,"u_ViewProjection"),false,skyVP);
   drawTexturedSkybox(gl, skyboxProgram, 50, skyTexture);
   
-  // Draw ground.
+  // draw ground
   gl.useProgram(colorProgram);
   drawGround(gl, colorProgram);
   
-  // Draw dynamic blocks.
+  // draw dynamic blocks
   for (let key in dynamicBlocks) {
     let parts = key.split(",").map(Number);
-    let m = mat4.fromTranslation(mat4.create(), parts);
+    // offset y by +0.5 so bottom is at y=cell[1]
+    let m = mat4.fromTranslation(mat4.create(), [parts[0], parts[1] + 0.5, parts[2]]);
     drawColoredCube(gl, colorProgram, m, [0.6, 0.6, 0.6, 1]);
   }
   
-  // Draw trees.
-  for (let i = 0; i < trees.length; i++) {
+  // draw trees
+  for (let i=0; i<trees.length; i++){
     drawCherryTree(gl, trees[i]);
   }
   
@@ -221,43 +306,38 @@ function renderScene() {
   requestAnimationFrame(renderScene);
 }
 
-// FPS counter
-let lastTime = 0, frameCount = 0;
-function updateFPS() {
-  const now = performance.now();
+// simple FPS
+let lastTime=0, frameCount=0;
+function updateFPS(){
+  let now=performance.now();
   frameCount++;
-  if (now - lastTime >= 1000) {
-    const fps = (frameCount * 1000 / (now - lastTime)).toFixed(1);
-    document.getElementById("fpsIndicator").innerText = "FPS: " + fps;
-    lastTime = now;
-    frameCount = 0;
+  if(now-lastTime>=1000){
+    let fps=(frameCount*1000/(now-lastTime)).toFixed(1);
+    document.getElementById("fpsIndicator").innerText="FPS: "+fps;
+    lastTime=now; frameCount=0;
   }
 }
 
-function main() {
-  canvas = document.getElementById("webgl");
-  if (!canvas) return console.error("No canvas");
-  gl = canvas.getContext("webgl");
-  if (!gl) return console.error("No WebGL");
+function main(){
+  canvas=document.getElementById("webgl");
+  if(!canvas)return console.error("No canvas");
+  gl=canvas.getContext("webgl");
+  if(!gl)return console.error("No WebGL");
   gl.enable(gl.DEPTH_TEST);
-  gl.clearColor(0, 0, 0, 1);
+  gl.clearColor(0,0,0,1);
   
-  // Create programs.
-  colorProgram = createProgram(gl, colorVS, colorFS);
-  trunkProgram = createProgram(gl, trunkVS, trunkFS);
-  skyboxProgram = createProgram(gl, skyVS, skyFS);
+  colorProgram=createProgram(gl,colorVS,colorFS);
+  trunkProgram=createProgram(gl,trunkVS,trunkFS);
+  skyboxProgram=createProgram(gl,skyVS,skyFS);
   
-  // Load textures.
-  logTexture = loadTexture(gl, "logtexture.png");
-  leafTexture = loadTexture(gl, "leaftexture.png");
-  skyTexture = loadCubeMapTexture(gl, "skytexture.png");
+  logTexture=loadTexture(gl,"logtexture.png");
+  leafTexture=loadTexture(gl,"leaftexture.png");
+  skyTexture=loadCubeMapTexture(gl,"skytexture.png");
   
-  // Create two trees.
-  trees.push(createCherryTree([-5, -5]));
-  trees.push(createCherryTree([5, 2]));
-  
-  // Generate grass plane as one large quad (ground is drawn by drawGround).
+  // create a couple trees
+  trees.push(createCherryTree([-5,-5]));
+  trees.push(createCherryTree([5,2]));
   
   renderScene();
 }
-window.onload = main;
+window.onload=main;

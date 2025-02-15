@@ -4,28 +4,65 @@
   <meta charset="UTF-8">
   <title>Virtual World WebGL</title>
   <style>
-    canvas {
-      display: block;
+    body { margin: 0; overflow: hidden; background: #222; }
+    /* Container centers the canvas */
+    #container {
+      position: relative;
+      width: 1200px;
+      height: 800px;
       margin: 20px auto;
-      background-color: black;
-      width: 1200px;
-      height: 800px;
+      background: black;
     }
-    #webgl {
-      width: 1200px;
-      height: 800px;
+    canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
     }
     #fpsIndicator {
       text-align: center;
       font-family: sans-serif;
-      color: black;
+      color: white;
       margin: 10px auto;
       font-size: 20px;
+    }
+    /* Crosshair overlay centered within the container */
+    #crosshair {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: 20px;
+      height: 20px;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+      z-index: 10;
+    }
+    #crosshair::before,
+    #crosshair::after {
+      content: "";
+      position: absolute;
+      background: white;
+    }
+    /* Vertical line */
+    #crosshair::before {
+      left: 9px;
+      top: 0;
+      width: 2px;
+      height: 20px;
+    }
+    /* Horizontal line */
+    #crosshair::after {
+      top: 9px;
+      left: 0;
+      width: 20px;
+      height: 2px;
     }
   </style>
 </head>
 <body>
-  <canvas id="webgl" width="1200" height="800"></canvas>
+  <div id="container">
+    <canvas id="webgl" width="1200" height="800"></canvas>
+    <div id="crosshair"></div>
+  </div>
   <div id="fpsIndicator">FPS: </div>
   <!-- External library: gl-matrix -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/gl-matrix/2.8.1/gl-matrix-min.js"></script>
