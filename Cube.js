@@ -28,7 +28,7 @@ function loadCubeMapTexture(gl, url) {
   return tex;
 }
 
-// -- Load a 2D texture (for trunk) --
+// -- Load a 2D texture (for trunk and leaves) --
 function loadTexture(gl, url) {
   const tex = gl.createTexture();
   gl.bindTexture(gl.TEXTURE_2D, tex);
@@ -47,8 +47,7 @@ function loadTexture(gl, url) {
   return tex;
 }
 
-// -- Draw a double-sided colored cube (unit cube from -0.5 to 0.5) --
-// Used for leaves and test geometry.
+// -- Draw a double-sided colored cube (used for testing if needed) --
 function drawColoredCube(gl, prog, m, col) {
   gl.disable(gl.CULL_FACE);
   m = m || mat4.create();
@@ -114,90 +113,71 @@ function drawColoredQuad(gl, prog, m, col) {
   gl.enable(gl.CULL_FACE);
 }
 
-// Replace your old drawTexturedCube with this 24-vertex version.
+// -- Draw a double-sided textured cube (for trunk and leaves) --
+// This version uses 24 distinct vertices so that each face gets proper texture coords.
 function drawTexturedCube(gl, prog, m, tex) {
   gl.disable(gl.CULL_FACE);
   m = m || mat4.create();
   gl.bindTexture(gl.TEXTURE_2D, tex);
-
   let aPos = gl.getAttribLocation(prog, "a_Position");
   let aTex = gl.getAttribLocation(prog, "a_TexCoord");
-
-  // 24 vertices: each face has its own 4 distinct vertices with texcoords 0..1
-  // Each face is a standard unit square from -0.5..+0.5 in X/Y/Z.
   const verts = new Float32Array([
     // Front face (z = 0.5)
     -0.5, -0.5,  0.5,   0,0,
      0.5, -0.5,  0.5,   1,0,
      0.5,  0.5,  0.5,   1,1,
     -0.5,  0.5,  0.5,   0,1,
-
     // Back face (z = -0.5)
-    0.5, -0.5, -0.5,    0,0,
+     0.5, -0.5, -0.5,   0,0,
     -0.5, -0.5, -0.5,   1,0,
     -0.5,  0.5, -0.5,   1,1,
      0.5,  0.5, -0.5,   0,1,
-
     // Left face (x = -0.5)
     -0.5, -0.5, -0.5,   0,0,
     -0.5, -0.5,  0.5,   1,0,
     -0.5,  0.5,  0.5,   1,1,
     -0.5,  0.5, -0.5,   0,1,
-
     // Right face (x = 0.5)
-    0.5, -0.5,  0.5,    0,0,
-    0.5, -0.5, -0.5,    1,0,
-    0.5,  0.5, -0.5,    1,1,
-    0.5,  0.5,  0.5,    0,1,
-
+     0.5, -0.5,  0.5,   0,0,
+     0.5, -0.5, -0.5,   1,0,
+     0.5,  0.5, -0.5,   1,1,
+     0.5,  0.5,  0.5,   0,1,
     // Top face (y = 0.5)
     -0.5,  0.5,  0.5,   0,0,
      0.5,  0.5,  0.5,   1,0,
      0.5,  0.5, -0.5,   1,1,
     -0.5,  0.5, -0.5,   0,1,
-
     // Bottom face (y = -0.5)
     -0.5, -0.5, -0.5,   0,0,
      0.5, -0.5, -0.5,   1,0,
      0.5, -0.5,  0.5,   1,1,
     -0.5, -0.5,  0.5,   0,1
   ]);
-
-  // 6 faces × 2 triangles each → 12 triangles → 36 indices
   const inds = new Uint16Array([
     // Front
-    0, 1, 2,    0, 2, 3,
+    0,1,2, 0,2,3,
     // Back
-    4, 5, 6,    4, 6, 7,
+    4,5,6, 4,6,7,
     // Left
-    8, 9, 10,   8, 10, 11,
+    8,9,10, 8,10,11,
     // Right
-    12,13,14,   12,14,15,
+    12,13,14, 12,14,15,
     // Top
-    16,17,18,   16,18,19,
+    16,17,18, 16,18,19,
     // Bottom
-    20,21,22,   20,22,23
+    20,21,22, 20,22,23
   ]);
-
-  // Create buffers
   let vb = gl.createBuffer();
   gl.bindBuffer(gl.ARRAY_BUFFER, vb);
   gl.bufferData(gl.ARRAY_BUFFER, verts, gl.STATIC_DRAW);
-
   gl.vertexAttribPointer(aPos, 3, gl.FLOAT, false, 5*4, 0);
   gl.enableVertexAttribArray(aPos);
-
   gl.vertexAttribPointer(aTex, 2, gl.FLOAT, false, 5*4, 3*4);
   gl.enableVertexAttribArray(aTex);
-
   let ib = gl.createBuffer();
   gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ib);
   gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, inds, gl.STATIC_DRAW);
-
-  // Set model matrix
   gl.uniformMatrix4fv(gl.getUniformLocation(prog, "u_Model"), false, m);
-  
-  // Draw
   gl.drawElements(gl.TRIANGLES, inds.length, gl.UNSIGNED_SHORT, 0);
   gl.enable(gl.CULL_FACE);
 }
