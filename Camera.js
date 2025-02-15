@@ -7,7 +7,6 @@ var isMoving = {w:false, a:false, s:false, d:false, space:false, shift:false, q:
 var mSens = 0.2, mSpeed = 1, tSpeed = 1.5;
 var rotLerp = 0.1, movLerp = 0.1;
 
-// We'll store the canvas element for pointer lock
 var canvas = document.getElementById("webgl");
 
 // Request pointer lock on click.
