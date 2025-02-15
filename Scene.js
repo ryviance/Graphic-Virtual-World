@@ -1,8 +1,8 @@
 // Scene.js
 
-function createShader(gl, type, source) {
-  var sh = gl.createShader(type);
-  gl.shaderSource(sh, source);
+function createShader(gl, type, src) {
+  let sh = gl.createShader(type);
+  gl.shaderSource(sh, src);
   gl.compileShader(sh);
   if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) {
     console.error("Shader compile error:", gl.getShaderInfoLog(sh));
@@ -10,18 +10,18 @@ function createShader(gl, type, source) {
   }
   return sh;
 }
-function createProgram(gl, vsSource, fsSource) {
-  var vs = createShader(gl, gl.VERTEX_SHADER, vsSource);
-  var fs = createShader(gl, gl.FRAGMENT_SHADER, fsSource);
-  var p = gl.createProgram();
-  gl.attachShader(p, vs);
-  gl.attachShader(p, fs);
-  gl.linkProgram(p);
-  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) {
-    console.error("Program link error:", gl.getProgramInfoLog(p));
+function createProgram(gl, vsSrc, fsSrc) {
+  let vs = createShader(gl, gl.VERTEX_SHADER, vsSrc);
+  let fs = createShader(gl, gl.FRAGMENT_SHADER, fsSrc);
+  let prog = gl.createProgram();
+  gl.attachShader(prog, vs);
+  gl.attachShader(prog, fs);
+  gl.linkProgram(prog);
+  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+    console.error("Program link error:", gl.getProgramInfoLog(prog));
     return null;
   }
-  return p;
+  return prog;
 }
 
 var colorProgram, trunkProgram, skyboxProgram;
@@ -37,7 +37,7 @@ const colorVS = `
   uniform mat4 u_ViewProjection;
   uniform mat4 u_Model;
   varying vec4 v_Color;
-  void main(){ gl_Position = u_ViewProjection * u_Model * a_Position; v_Color = a_Color; }
+  void main(){ gl_Position = u_ViewProjection*u_Model*a_Position; v_Color = a_Color; }
 `;
 const colorFS = `
   precision mediump float;
@@ -50,7 +50,7 @@ const trunkVS = `
   uniform mat4 u_ViewProjection;
   uniform mat4 u_Model;
   varying vec2 v_TexCoord;
-  void main(){ gl_Position = u_ViewProjection * u_Model * a_Position; v_TexCoord = a_TexCoord; }
+  void main(){ gl_Position = u_ViewProjection*u_Model*a_Position; v_TexCoord = a_TexCoord; }
 `;
 const trunkFS = `
   precision mediump float;
@@ -62,96 +62,91 @@ const skyVS = `
   attribute vec3 a_Position;
   uniform mat4 u_ViewProjection;
   varying vec3 v_TexCoord;
-  void main(){ v_TexCoord = a_Position; gl_Position = u_ViewProjection * vec4(a_Position, 1.0); }
+  void main(){ v_TexCoord = a_Position; gl_Position = u_ViewProjection*vec4(a_Position,1.0); }
 `;
 const skyFS = `
   precision mediump float;
   varying vec3 v_TexCoord;
   uniform samplerCube u_Skybox;
-  void main(){ gl_FragColor = textureCube(u_Skybox, v_TexCoord); }
+  void main(){ gl_FragColor = textureCube(u_Skybox,v_TexCoord); }
 `;
 
 function drawGround(gl, prog) {
-  var m = mat4.create();
+  let m = mat4.create();
   drawColoredQuad(gl, prog, m, [0,0.8,0,1]);
 }
 
 function isCellOccupied(cell) {
-  var key = cell.join(",");
+  let key = cell.join(",");
   if(dynamicBlocks[key]) return true;
-  for(var i=0;i<trees.length;i++){
-    var t = trees[i];
-    for(var j=0;j<t.trunk.length;j++){
+  for(let i=0;i<trees.length;i++){
+    let t = trees[i];
+    for(let j=0;j<t.trunk.length;j++){
       if(t.trunk[j].map(Math.floor).join(",")===key)return true;
     }
-    for(var j=0;j<t.leaves.length;j++){
+    for(let j=0;j<t.leaves.length;j++){
       if(t.leaves[j].map(Math.floor).join(",")===key)return true;
     }
   }
-  for(var i=0;i<toriiGates.length;i++){
-    var gate = toriiGates[i];
-    var parts = [ {name:"blackFeet", arr: gate.blackFeet},
-                  {name:"redPillars", arr: gate.redPillars},
-                  {name:"crossbeams", arr: gate.crossbeams},
-                  {name:"roof", arr: gate.roof} ];
-    for(var a=0;a<parts.length;a++){
-      for(var j=0;j<parts[a].arr.length;j++){
-        if(parts[a].arr[j].map(Math.floor).join(",")===key)return true;
-      }
+  for(let i=0;i<toriiGates.length;i++){
+    let gate = toriiGates[i];
+    let parts = gate.blackFeet.concat(gate.redPillars, gate.crossbeams, gate.roof);
+    for(let j=0;j<parts.length;j++){
+      if(parts[j].map(Math.floor).join(",")===key)return true;
     }
   }
   return false;
 }
 
 function raycastBlock() {
-  var yaw = camRot * Math.PI/180, pitch = camPitch * Math.PI/180;
-  var dir = [ Math.sin(yaw)*Math.cos(pitch), Math.sin(pitch), -Math.cos(yaw)*Math.cos(pitch) ];
-  var pos = camPos.slice(), cell = pos.map(Math.floor);
-  var step = [0,0,0], tMax = [0,0,0], tDelta = [0,0,0];
-  for(var i=0;i<3;i++){
+  let yaw = camRot*Math.PI/180, pitch = camPitch*Math.PI/180;
+  let dir = [ Math.sin(yaw)*Math.cos(pitch), Math.sin(pitch), -Math.cos(yaw)*Math.cos(pitch) ];
+  let pos = camPos.slice(), cell = pos.map(Math.floor);
+  let step = [0,0,0], tMax = [0,0,0], tDelta = [0,0,0];
+  for(let i=0;i<3;i++){
     if(dir[i]>0){ step[i]=1; tMax[i]=((cell[i]+1)-pos[i])/dir[i]; }
     else if(dir[i]<0){ step[i]=-1; tMax[i]=(pos[i]-cell[i])/-dir[i]; }
     else{ step[i]=0; tMax[i]=Infinity; }
     tDelta[i]=(dir[i]!==0)?Math.abs(1/dir[i]):Infinity;
   }
-  var maxDist = 10, faceNormal = [0,0,0];
+  let maxDist = 10, faceNormal = [0,0,0];
   while(true){
-    var key = cell.join(",");
+    let key = cell.join(",");
     if(dynamicBlocks[key]){
       if(tMax[0]<tMax[1] && tMax[0]<tMax[2]) faceNormal = [-step[0],0,0];
       else if(tMax[1]<tMax[2]) faceNormal = [0,-step[1],0];
       else faceNormal = [0,0,-step[2]];
       return { cell: cell.slice(), face: faceNormal, type:"dynamic" };
     }
-    for(var ti=0;ti<trees.length;ti++){
-      var tree = trees[ti];
-      for(var j=0;j<tree.trunk.length;j++){
+    for(let ti=0;ti<trees.length;ti++){
+      let tree = trees[ti];
+      for(let j=0;j<tree.trunk.length;j++){
         if(tree.trunk[j].map(Math.floor).join(",")===key){
           if(tMax[0]<tMax[1] && tMax[0]<tMax[2]) faceNormal = [-step[0],0,0];
           else if(tMax[1]<tMax[2]) faceNormal = [0,-step[1],0];
           else faceNormal = [0,0,-step[2]];
-          return { cell: cell.slice(), face: faceNormal, tree: tree, blockType:"trunk", index:j };
+          return { cell: cell.slice(), face: faceNormal, tree, blockType:"trunk", index:j };
         }
       }
-      for(var j=0;j<tree.leaves.length;j++){
+      for(let j=0;j<tree.leaves.length;j++){
         if(tree.leaves[j].map(Math.floor).join(",")===key){
           if(tMax[0]<tMax[1] && tMax[0]<tMax[2]) faceNormal = [-step[0],0,0];
           else if(tMax[1]<tMax[2]) faceNormal = [0,-step[1],0];
           else faceNormal = [0,0,-step[2]];
-          return { cell: cell.slice(), face: faceNormal, tree: tree, blockType:"leaves", index:j };
+          return { cell: cell.slice(), face: faceNormal, tree, blockType:"leaves", index:j };
         }
       }
     }
-    for(var ti=0;ti<toriiGates.length;ti++){
-      var gate = toriiGates[ti];
-      var parts = [
+    for(let ti=0;ti<toriiGates.length;ti++){
+      let gate = toriiGates[ti];
+      let parts = [
         {name:"blackFeet", arr: gate.blackFeet},
         {name:"redPillars", arr: gate.redPillars},
         {name:"crossbeams", arr: gate.crossbeams},
         {name:"roof", arr: gate.roof}
       ];
-      for(var a=0;a<parts.length;a++){
-        for(var j=0;j<parts[a].arr.length;j++){
+      for(let a=0;a<parts.length;a++){
+        for(let j=0;j<parts[a].arr.length;j++){
           if(parts[a].arr[j].map(Math.floor).join(",")===key){
             if(tMax[0]<tMax[1] && tMax[0]<tMax[2]) faceNormal = [-step[0],0,0];
             else if(tMax[1]<tMax[2]) faceNormal = [0,-step[1],0];
@@ -177,7 +172,7 @@ function raycastBlock() {
 
 document.getElementById("webgl").addEventListener("mousedown", function(e) {
   e.preventDefault();
-  var hit = raycastBlock();
+  let hit = raycastBlock();
   if(e.button === 0 && hit) {
     if(hit.tree) {
       if(hit.blockType==="trunk")
@@ -185,8 +180,7 @@ document.getElementById("webgl").addEventListener("mousedown", function(e) {
       else
         hit.tree.leaves.splice(hit.index,1);
     } else if(hit.torii) {
-      var gate = hit.torii;
-      // Remove from the specific part array.
+      let gate = hit.torii;
       if(hit.partArray==="blackFeet") gate.blackFeet.splice(hit.index,1);
       else if(hit.partArray==="redPillars") gate.redPillars.splice(hit.index,1);
       else if(hit.partArray==="crossbeams") gate.crossbeams.splice(hit.index,1);
@@ -195,12 +189,12 @@ document.getElementById("webgl").addEventListener("mousedown", function(e) {
       delete dynamicBlocks[hit.cell.join(",")];
     }
   } else if(e.button === 2) {
-    var cell;
+    let cell;
     if(hit) {
-      var n = hit.face;
+      let n = hit.face;
       cell = [ hit.cell[0] - n[0], hit.cell[1] - n[1], hit.cell[2] - n[2] ];
     } else {
-      var yaw = camRot * Math.PI/180, pitch = camPitch * Math.PI/180;
+      let yaw = camRot*Math.PI/180, pitch = camPitch*Math.PI/180;
       cell = [
         Math.floor(camPos[0] + Math.sin(yaw)*Math.cos(pitch)*5),
         Math.floor(camPos[1] + Math.sin(pitch)*5),
@@ -215,28 +209,69 @@ document.getElementById("webgl").addEventListener("mousedown", function(e) {
 });
 document.getElementById("webgl").addEventListener("contextmenu", function(e) { e.preventDefault(); });
 
-function renderScene() {
+function generateForest() {
+  trees = [];
+  // Generate 300 trees over area x,z ∈ [-100,100]
+  for (let i = 0; i < 300; i++) {
+    let x = Math.floor(Math.random() * 200 - 100);
+    let z = Math.floor(Math.random() * 200 - 100);
+    // Skip trees whose base is near the path (|x| < 5)
+    if (Math.abs(x) < 5) continue;
+    let variant = Math.floor(Math.random() * 3) + 1;
+    let tree;
+    if (variant === 1) tree = createFancyCherryTree1([x, z]);
+    else if (variant === 2) tree = createFancyCherryTree2([x, z]);
+    else tree = createFancyCherryTree3([x, z]);
+    let overlap = false;
+    for (let b of tree.trunk.concat(tree.leaves)) {
+      let key = b.map(Math.floor).join(",");
+      // Also skip trees that have any block with x in [-5,5] and z in [-40,40] (path region)
+      let bx = parseInt(key.split(",")[0]);
+      let bz = parseInt(key.split(",")[2]);
+      if(bx >= -5 && bx <= 5 && bz >= -40 && bz <= 40) { overlap = true; break; }
+      for (let j = 0; j < toriiGates.length; j++) {
+        let gate = toriiGates[j];
+        let gateBlocks = gate.blackFeet.concat(gate.redPillars, gate.crossbeams, gate.roof);
+        if (gateBlocks.some(gb => gb.map(Math.floor).join(",") === key)) {
+          overlap = true;
+          break;
+        }
+      }
+      if (overlap) break;
+    }
+    if (!overlap) trees.push(tree);
+  }
+}
+function generatePathTorii() {
+  toriiGates = [];
+  // Path along z-axis at x=0.
+  for (let z = -40; z <= 40; z += 20) {
+    toriiGates.push(createTorii([0, z]));
+  }
+}
+
+function drawScene() {
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
   
-  var vp = updateCamera(gl, colorProgram, canvas);
-  var vpMatrix = mat4.create();
+  let vp = updateCamera(gl, colorProgram, canvas);
+  let vpMatrix = mat4.create();
   mat4.multiply(vpMatrix, vp.proj, vp.view);
 
-  var skyView = mat4.clone(vp.view);
+  let skyView = mat4.clone(vp.view);
   skyView[12] = skyView[13] = skyView[14] = 0;
-  var skyVP = mat4.create();
+  let skyVP = mat4.create();
   mat4.multiply(skyVP, vp.proj, skyView);
 
   gl.useProgram(trunkProgram);
-  var locTP = gl.getUniformLocation(trunkProgram, "u_ViewProjection");
+  let locTP = gl.getUniformLocation(trunkProgram, "u_ViewProjection");
   gl.uniformMatrix4fv(locTP, false, vpMatrix);
 
   gl.useProgram(colorProgram);
-  var locCP = gl.getUniformLocation(colorProgram, "u_ViewProjection");
+  let locCP = gl.getUniformLocation(colorProgram, "u_ViewProjection");
   gl.uniformMatrix4fv(locCP, false, vpMatrix);
 
   gl.useProgram(skyboxProgram);
-  var locSP = gl.getUniformLocation(skyboxProgram, "u_ViewProjection");
+  let locSP = gl.getUniformLocation(skyboxProgram, "u_ViewProjection");
   gl.uniformMatrix4fv(locSP, false, skyVP);
   drawTexturedSkybox(gl, skyboxProgram, 50, skyTexture);
 
@@ -244,54 +279,37 @@ function renderScene() {
   drawGround(gl, colorProgram);
 
   gl.useProgram(trunkProgram);
-  for (var key in dynamicBlocks) {
-    var parts = key.split(",").map(Number);
-    var m = mat4.fromTranslation(mat4.create(), [parts[0], parts[1] + 0.5, parts[2]]);
+  for (let key in dynamicBlocks) {
+    let parts = key.split(",").map(Number);
+    let m = mat4.fromTranslation(mat4.create(), [parts[0], parts[1] + 0.5, parts[2]]);
     drawTexturedCube(gl, trunkProgram, m, cobblestoneTexture);
   }
 
-  for (var i = 0; i < trees.length; i++) {
+  for (let i = 0; i < trees.length; i++) {
     drawCherryTree(gl, trees[i]);
   }
 
   gl.useProgram(colorProgram);
-  for (var i = 0; i < toriiGates.length; i++) {
+  for (let i = 0; i < toriiGates.length; i++) {
     drawTorii(gl, toriiGates[i]);
   }
 
   updateFPS();
-  requestAnimationFrame(renderScene);
+  requestAnimationFrame(drawScene);
 }
 
 var lastTime = 0, frameCount = 0;
 function updateFPS() {
-  var now = performance.now();
+  let now = performance.now();
   frameCount++;
   if (now - lastTime >= 1000) {
-    var fps = (frameCount * 1000 / (now - lastTime)).toFixed(1);
+    let fps = (frameCount * 1000 / (now - lastTime)).toFixed(1);
     document.getElementById("fpsIndicator").innerText = "FPS: " + fps;
     lastTime = now;
     frameCount = 0;
   }
 }
 
-function generateForest() {
-  trees = [];
-  for (let i = 0; i < 50; i++) {
-    let x = Math.floor(Math.random() * 100 - 50);
-    let z = Math.floor(Math.random() * 40 - 50);
-    let variant = Math.floor(Math.random() * 3) + 1;
-    if (variant === 1) trees.push(createFancyCherryTree1([x, z]));
-    else if (variant === 2) trees.push(createFancyCherryTree2([x, z]));
-    else trees.push(createFancyCherryTree3([x, z]));
-  }
-}
-function generatePathTorii() {
-  toriiGates = [];
-  for (let x = -40; x <= 40; x += 20) {
-    toriiGates.push(createTorii([x, 0]));
-  }
-}
 function main() {
   canvas = document.getElementById("webgl");
   if (!canvas) return console.error("No canvas");
@@ -310,12 +328,12 @@ function main() {
   leafTexture = loadTexture(gl, "leaftexture.png");
   skyTexture = loadCubeMapTexture(gl, "skytexture.png");
 
-  generateForest();
   generatePathTorii();
+  generateForest();
   toriiGates = [];
-  for (let x = -40; x <= 40; x += 20) {
-    toriiGates.push(createTorii([x, 0]));
+  for (let z = -40; z <= 40; z += 20) {
+    toriiGates.push(createTorii([0, z]));
   }
-  renderScene();
+  drawScene();
 }
 window.onload = main;
